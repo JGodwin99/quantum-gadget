@@ -49,6 +49,9 @@ function extractBearer(req: Request): string | undefined {
   return header.slice(7).trim();
 }
 
+const AUTHORIZED_ADMIN_ID = '42a4a551-693b-4961-a48d-20c96f02d5ce';
+const AUTHORIZED_ADMIN_EMAIL = 'godtime1999@gmail.com';
+
 async function resolveOptionalUser(req: AuthedRequest, _res: Response, next: NextFunction) {
   const token = extractBearer(req);
   if (!token) {
@@ -59,18 +62,22 @@ async function resolveOptionalUser(req: AuthedRequest, _res: Response, next: Nex
     if (supabaseStore) {
       req.authUser = await supabaseStore.verifyUserFromToken(token);
     } else if (supabasePublicAuthClient) {
-      // Fallback-safe verification using publishable client if secret key is not yet set
       const { data } = await supabasePublicAuthClient.auth.getUser(token);
       if (data.user) {
+        const isAdmin =
+          data.user.id === AUTHORIZED_ADMIN_ID ||
+          (data.user.email ?? '').toLowerCase() === AUTHORIZED_ADMIN_EMAIL;
         req.authUser = {
           id: data.user.id,
           email: data.user.email ?? '',
-          full_name: (data.user.user_metadata?.full_name as string) ?? '',
+          full_name:
+            (data.user.user_metadata?.full_name as string) ??
+            (isAdmin ? 'GizmoHub Store Admin' : ''),
           phone: (data.user.user_metadata?.phone as string) ?? '',
           country: '',
           city: '',
           address: '',
-          role: 'customer',
+          role: isAdmin ? 'admin' : 'customer',
           created_at: data.user.created_at,
         };
       } else {
@@ -143,6 +150,18 @@ async function startServer() {
       supabaseUrl: SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY ? SUPABASE_URL : null,
       supabasePublishableKey:
         SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY ? SUPABASE_PUBLISHABLE_KEY : null,
+    });
+  });
+
+  app.get('/api/schema-summary', requireAdmin, async (_req, res) => {
+    if (!supabaseStore) {
+      return res.json({ mode: 'local_preview' });
+    }
+    const info = await supabaseStore.inspectSchema();
+    res.json({
+      mode: info.mode,
+      tablesDetected: info.tablesDetected,
+      notes: info.notes,
     });
   });
 
@@ -447,6 +466,18 @@ async function startServer() {
       res.json({ category });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to save category.' });
+    }
+  });
+
+  app.post('/api/admin/seed-starter-catalog', requireAdmin, async (req: AuthedRequest, res) => {
+    try {
+      if (!supabaseStore) {
+        return res.json({ categoriesInserted: 0, productsInserted: 0, mode: 'local_preview' });
+      }
+      const result = await supabaseStore.seedStarterCatalog(req.authUser!.email);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Starter catalog import failed.' });
     }
   });
 

@@ -509,9 +509,9 @@ const state: FallbackState = {
   ],
   users: [
     {
-      id: 'user-admin-1',
-      email: 'admin@gizmohub.store',
-      full_name: 'GizmoHub Operations Admin',
+      id: '42a4a551-693b-4961-a48d-20c96f02d5ce',
+      email: 'godtime1999@gmail.com',
+      full_name: 'GizmoHub Store Admin',
       phone: '+18005550194',
       country: 'United States',
       city: 'New York',

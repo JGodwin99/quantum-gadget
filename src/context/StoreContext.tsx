@@ -20,6 +20,7 @@ interface StoreContextValue {
   route: string;
   navigate: (to: string) => void;
   backendMode: 'supabase' | 'local_preview';
+  authMode: 'supabase' | 'local_preview';
   loadingCatalog: boolean;
   categories: Category[];
   products: Product[];
@@ -99,6 +100,7 @@ export function getEffectivePrice(product: Product): number {
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [route, setRoute] = useState<string>(() => window.location.pathname + window.location.search || '/');
   const [backendMode, setBackendMode] = useState<'supabase' | 'local_preview'>('local_preview');
+  const [authMode, setAuthMode] = useState<'supabase' | 'local_preview'>('local_preview');
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -202,11 +204,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const cfg = await initRuntimeConfig();
       if (!active) return;
       setBackendMode(cfg.mode);
+      const effectiveAuthMode = cfg.authMode ?? cfg.mode;
+      setAuthMode(effectiveAuthMode);
 
       await refreshCatalog();
 
       const supa = getSupabaseClient();
-      if (cfg.mode === 'supabase' && supa) {
+      let resolved = false;
+      if (effectiveAuthMode === 'supabase' && supa) {
         const { data } = await supa.auth.getSession();
         const token = data.session?.access_token ?? null;
         if (token) {
@@ -216,10 +221,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           });
           if (meRes.ok) {
             const me = await meRes.json();
-            if (active) setUser(me.user);
+            if (active) {
+              setUser(me.user);
+              resolved = true;
+            }
           }
         }
-      } else {
+      }
+      if (!resolved) {
         const savedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
         if (savedToken) {
           const meRes = await fetch('/api/auth/me', {
@@ -332,18 +341,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string): Promise<CustomerProfile> => {
     const supa = getSupabaseClient();
-    if (backendMode === 'supabase' && supa) {
+    if (authMode === 'supabase' && supa) {
       const { data, error } = await supa.auth.signInWithPassword({ email, password });
-      if (error || !data.session) throw new Error(error?.message ?? 'Sign-in failed.');
-      const token = data.session.access_token;
-      const meRes = await fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!meRes.ok) throw new Error('Unable to load account profile.');
-      const { user: profile } = (await meRes.json()) as { user: CustomerProfile };
-      setAuthToken(token);
-      setUser(profile);
-      return profile;
+      if (!error && data.session) {
+        const token = data.session.access_token;
+        const meRes = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!meRes.ok) throw new Error('Unable to load account profile.');
+        const { user: profile } = (await meRes.json()) as { user: CustomerProfile };
+        setAuthToken(token);
+        setUser(profile);
+        return profile;
+      }
+      // If in local_preview data mode, allow local fallback demo login when Supabase login didn't match
+      if (backendMode === 'supabase') {
+        throw new Error(error?.message ?? 'Sign-in failed.');
+      }
     }
 
     const res = await fetch('/api/auth/login', {
@@ -357,7 +371,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAuthToken(data.token);
     setUser(data.user);
     return data.user as CustomerProfile;
-  }, [backendMode]);
+  }, [authMode, backendMode]);
 
   const register = useCallback(
     async (input: {
@@ -370,7 +384,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       address?: string;
     }): Promise<CustomerProfile> => {
       const supa = getSupabaseClient();
-      if (backendMode === 'supabase' && supa) {
+      if (authMode === 'supabase' && supa) {
         const { data, error } = await supa.auth.signUp({
           email: input.email,
           password: input.password,
@@ -418,13 +432,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setUser(data.user);
       return data.user as CustomerProfile;
     },
-    [backendMode]
+    [authMode]
   );
 
   const requestPasswordReset = useCallback(
     async (email: string): Promise<string> => {
       const supa = getSupabaseClient();
-      if (backendMode === 'supabase' && supa) {
+      if (authMode === 'supabase' && supa) {
         const { error } = await supa.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/account`,
         });
@@ -433,14 +447,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return 'If an account matches this email, password reset instructions have been queued.';
     },
-    [backendMode]
+    [authMode]
   );
 
   const logout = useCallback(async () => {
     const supa = getSupabaseClient();
-    if (backendMode === 'supabase' && supa) {
+    if (authMode === 'supabase' && supa) {
       await supa.auth.signOut();
-    } else if (authToken) {
+    }
+    if (authToken) {
       await fetch('/api/auth/logout', {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` },
@@ -450,7 +465,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAuthToken(null);
     setUser(null);
     notify('Signed out successfully.', 'info');
-  }, [authToken, backendMode, notify]);
+  }, [authToken, authMode, notify]);
 
   const updateProfile = useCallback(
     async (
@@ -477,6 +492,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     route,
     navigate,
     backendMode,
+    authMode,
     loadingCatalog,
     categories,
     products,

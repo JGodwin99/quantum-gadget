@@ -72,6 +72,17 @@ function AppRouter() {
     return <HomePage />;
   };
 
+  const isAdminRoute = path === '/admin';
+
+  if (isAdminRoute) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FB] text-[#101828]">
+        <AdminDashboard />
+        <ToastContainer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-white text-[#101828]">
       <Navbar />
