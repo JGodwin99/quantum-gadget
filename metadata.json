@@ -1,0 +1,8 @@
+{
+  "name": "GizmoHub",
+  "description": "Modern technology gadgets, smart devices, and everyday tech accessories store with Cash on Delivery checkout.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
